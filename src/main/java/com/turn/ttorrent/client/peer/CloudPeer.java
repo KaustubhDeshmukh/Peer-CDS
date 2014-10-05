@@ -19,7 +19,11 @@ import com.amazonaws.regions.Region;
 import com.amazonaws.regions.Regions;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
+import com.amazonaws.services.s3.model.AmazonS3Exception;
+import com.amazonaws.services.s3.model.CompleteMultipartUploadRequest;
+import com.amazonaws.services.s3.model.GetObjectMetadataRequest;
 import com.amazonaws.services.s3.model.GetObjectRequest;
+import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.PutObjectRequest;
 import com.amazonaws.services.s3.model.PutObjectResult;
 import com.amazonaws.services.s3.model.S3Object;
@@ -29,7 +33,7 @@ public class CloudPeer {
 
 	private static final Logger logger =
 			LoggerFactory.getLogger(CloudPeer.class);
-	
+
 	private AWSCredentials credentials = null;
 	private AmazonS3 s3 = null;
 
@@ -39,7 +43,7 @@ public class CloudPeer {
 		credentials = new ProfileCredentialsProvider().getCredentials();
 		s3 = new AmazonS3Client(credentials);
 		s3.setRegion(Region.getRegion(Regions.US_WEST_2));
-		
+
 	}
 
 	public static void main(String args[]) throws Exception{
@@ -61,26 +65,56 @@ public class CloudPeer {
 		System.out.println();
 	}
 
-	public void uploadTorrent(String bucketName, String key, String filePath, String fileName){
+	public void uploadTorrent(String bucketName, String key, File sourceFile){
 
-		if(credentials == null){
-			
-		}
-		
+		boolean fileexists = false;
 		System.out.println("Creating bucket " + bucketName + "\n");
 
-		s3.createBucket(bucketName);
-		System.out.println("bucket created");
+		if(!s3.doesBucketExist(bucketName)){
+			s3.createBucket(bucketName);
+			System.out.println("bucket created");
+		}
 
-		System.out.println("Uploading a new object to S3 from a file\n");
-		PutObjectResult result = s3.putObject(new PutObjectRequest(bucketName, key, new File(filePath, fileName)));
-		System.out.println(fileName+" uploaded");
+		try{
+			GetObjectMetadataRequest r = new GetObjectMetadataRequest(bucketName, key);
+			ObjectMetadata metadata= s3.getObjectMetadata(r);
+			fileexists = true;
+		} catch(AmazonS3Exception e){
+			if (e.getStatusCode() == 404) {	        
+				fileexists = false;
+			}
+			else {
+				throw e;   
+			}
+		}
+
+		if(!fileexists){
+			
+			System.out.println("Uploading a new object to S3 from a file\n");
+			PutObjectResult result = s3.putObject(new PutObjectRequest(bucketName, key, sourceFile));
+			System.out.println("Etag for the uplaod "+result.getETag());
+			System.out.println(sourceFile.getName()+" uploaded");
+			
+		} else {
+			
+			System.out.println("File already exists in the cloud.. skipping upload.");
+		}
+		
+		System.out.println("Downloading torrent...");
+		try {
+			downloadPiece(bucketName, key, 0, 0);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+		System.out.println("Done Downloading torrent...");
 	}
 
 	public void downloadPiece(String bucketName, String key, int startByteIndex, int endByteIndex) throws IOException{
 
 		GetObjectRequest req = new GetObjectRequest(bucketName, key);
-		req.setRange(startByteIndex, endByteIndex);
+//		req.setRange(startByteIndex, endByteIndex);
 		S3Object object = s3.getObject(req);
 		System.out.println("Downloading an object");
 		System.out.println("Content-Type: "  + object.getObjectMetadata().getContentType());
